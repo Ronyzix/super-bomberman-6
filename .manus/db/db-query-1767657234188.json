@@ -1,0 +1,37 @@
+{
+  "query": "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3ExNaF68RPt4Vqh.7ed39f2a3094 --database HExNFzJ9J9CcAP6szmzuz5 --execute SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();",
+  "rows": [
+    {
+      "table_name": "__drizzle_migrations"
+    },
+    {
+      "table_name": "users"
+    },
+    {
+      "table_name": "achievements"
+    },
+    {
+      "table_name": "campaign_scores"
+    },
+    {
+      "table_name": "coop_scores"
+    },
+    {
+      "table_name": "game_replays"
+    },
+    {
+      "table_name": "game_rooms"
+    },
+    {
+      "table_name": "infinite_scores"
+    },
+    {
+      "table_name": "player_achievements"
+    }
+  ],
+  "messages": [],
+  "stdout": "table_name\n__drizzle_migrations\nusers\nachievements\ncampaign_scores\ncoop_scores\ngame_replays\ngame_rooms\ninfinite_scores\nplayer_achievements\n",
+  "stderr": "",
+  "execution_time_ms": 394
+}

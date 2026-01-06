@@ -1,0 +1,37 @@
+{
+  "query": "SHOW TABLES;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3ExNaF68RPt4Vqh.7ed39f2a3094 --database HExNFzJ9J9CcAP6szmzuz5 --execute SHOW TABLES;",
+  "rows": [
+    {
+      "Tables_in_HExNFzJ9J9CcAP6szmzuz5": "__drizzle_migrations"
+    },
+    {
+      "Tables_in_HExNFzJ9J9CcAP6szmzuz5": "achievements"
+    },
+    {
+      "Tables_in_HExNFzJ9J9CcAP6szmzuz5": "campaign_scores"
+    },
+    {
+      "Tables_in_HExNFzJ9J9CcAP6szmzuz5": "coop_scores"
+    },
+    {
+      "Tables_in_HExNFzJ9J9CcAP6szmzuz5": "game_replays"
+    },
+    {
+      "Tables_in_HExNFzJ9J9CcAP6szmzuz5": "game_rooms"
+    },
+    {
+      "Tables_in_HExNFzJ9J9CcAP6szmzuz5": "infinite_scores"
+    },
+    {
+      "Tables_in_HExNFzJ9J9CcAP6szmzuz5": "player_achievements"
+    },
+    {
+      "Tables_in_HExNFzJ9J9CcAP6szmzuz5": "users"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_HExNFzJ9J9CcAP6szmzuz5\n__drizzle_migrations\nachievements\ncampaign_scores\ncoop_scores\ngame_replays\ngame_rooms\ninfinite_scores\nplayer_achievements\nusers\n",
+  "stderr": "",
+  "execution_time_ms": 449
+}
