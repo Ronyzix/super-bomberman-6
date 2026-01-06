@@ -1,8 +1,9 @@
-// Enemy AI System - Intelligent behaviors for all enemy types
+// Enemy AI System - Intelligent behaviors for all enemy types with FIXED collision
 
 import { GAME_CONFIG, TILE_TYPES } from '../constants';
 import { Enemy, Player, Bomb, Tile, GridPosition, Position } from '../types';
 import { findPath, gridToPixel, pixelToGrid, manhattanDistance, randomElement, normalize } from '../utils/helpers';
+import { gameEngine } from '../engine/GameEngine';
 
 export class EnemyAI {
   private grid: Tile[][] = [];
@@ -86,7 +87,7 @@ export class EnemyAI {
           col: enemy.gridPosition.col + dir.x,
           row: enemy.gridPosition.row + dir.y,
         };
-        return this.isWalkable(newPos, enemy.canPassWalls);
+        return this.canEnemyWalkTo(newPos, enemy);
       });
 
       if (validDirs.length > 0) {
@@ -99,7 +100,7 @@ export class EnemyAI {
       }
     }
 
-    this.moveEnemy(enemy, deltaTime);
+    this.moveEnemyWithCollision(enemy, deltaTime);
   }
 
   // Bat - Fast movement in patterns
@@ -118,19 +119,23 @@ export class EnemyAI {
         enemy.direction = { x: 0, y: Math.sign(dy) };
       }
       
-      if (!this.isWalkable(this.getNextGridPos(enemy), false)) {
+      // Check if can move in that direction
+      const nextPos = this.getNextGridPos(enemy);
+      if (!this.canEnemyWalkTo(nextPos, enemy)) {
+        // Try alternative direction
         enemy.direction = { x: Math.sign(dy), y: Math.sign(dx) };
       }
     } else {
       this.slimeBehavior(enemy, deltaTime);
+      return;
     }
 
-    this.moveEnemy(enemy, deltaTime);
+    this.moveEnemyWithCollision(enemy, deltaTime);
     enemy.stateTimer -= deltaTime;
     if (enemy.stateTimer <= 0) enemy.stateTimer = 2000;
   }
 
-  // Ghost - Can pass through walls, moves towards player
+  // Ghost - Can pass through blocks (but not outer walls), moves towards player
   private ghostBehavior(enemy: Enemy, deltaTime: number): void {
     const nearestPlayer = this.findNearestPlayer(enemy);
     
@@ -139,10 +144,20 @@ export class EnemyAI {
       const dy = nearestPlayer.position.y - enemy.position.y;
       enemy.direction = normalize({ x: dx, y: dy });
     } else {
-      this.slimeBehavior(enemy, deltaTime);
+      // Random movement when no player nearby
+      if (enemy.stateTimer <= 0) {
+        const directions = [
+          { x: 0, y: -1 },
+          { x: 0, y: 1 },
+          { x: -1, y: 0 },
+          { x: 1, y: 0 },
+        ];
+        enemy.direction = randomElement(directions);
+        enemy.stateTimer = 1000 + Math.random() * 1000;
+      }
     }
 
-    this.moveEnemy(enemy, deltaTime, true);
+    this.moveEnemyWithCollision(enemy, deltaTime);
   }
 
   // Bomber - Places bombs and retreats
@@ -173,9 +188,10 @@ export class EnemyAI {
       }
     } else {
       this.slimeBehavior(enemy, deltaTime);
+      return;
     }
 
-    this.moveEnemy(enemy, deltaTime);
+    this.moveEnemyWithCollision(enemy, deltaTime);
   }
 
   // Charger - Rushes at player when spotted
@@ -184,13 +200,15 @@ export class EnemyAI {
     
     if (enemy.state === 'attacking') {
       // Continue charging
-      this.moveEnemy(enemy, deltaTime);
+      this.moveEnemyWithCollision(enemy, deltaTime);
       
       // Check if hit wall or reached destination
-      if (!this.isWalkable(this.getNextGridPos(enemy), false)) {
+      const nextPos = this.getNextGridPos(enemy);
+      if (!this.canEnemyWalkTo(nextPos, enemy)) {
         enemy.state = 'stunned';
         enemy.stateTimer = 1000;
         enemy.direction = { x: 0, y: 0 };
+        enemy.speed = 3.5; // Reset speed
       }
       return;
     }
@@ -218,7 +236,7 @@ export class EnemyAI {
       }
     }
 
-    enemy.speed = 4;
+    enemy.speed = 3.5;
     this.slimeBehavior(enemy, deltaTime);
   }
 
@@ -234,6 +252,8 @@ export class EnemyAI {
           const newPos = randomElement(emptyTiles);
           enemy.gridPosition = newPos;
           enemy.position = gridToPixel(newPos);
+          enemy.bounds.x = enemy.position.x + 4;
+          enemy.bounds.y = enemy.position.y + 4;
           enemy.specialAbilityCooldown = 3000;
           enemy.state = 'idle';
           enemy.stateTimer = 500;
@@ -270,9 +290,10 @@ export class EnemyAI {
       }
     } else {
       this.slimeBehavior(enemy, deltaTime);
+      return;
     }
 
-    this.moveEnemy(enemy, deltaTime);
+    this.moveEnemyWithCollision(enemy, deltaTime);
   }
 
   // Splitter - Splits into two when killed (handled in GameEngine)
@@ -290,35 +311,24 @@ export class EnemyAI {
       }
     } else {
       this.slimeBehavior(enemy, deltaTime);
+      return;
     }
 
-    this.moveEnemy(enemy, deltaTime);
+    this.moveEnemyWithCollision(enemy, deltaTime);
   }
 
-  // Helper methods
-  private moveEnemy(enemy: Enemy, deltaTime: number, canPassWalls: boolean = false): void {
+  // FIXED: Move enemy with proper collision detection
+  private moveEnemyWithCollision(enemy: Enemy, deltaTime: number): void {
     const speed = enemy.speed * (deltaTime / 16.67);
-    const newX = enemy.position.x + enemy.direction.x * speed;
-    const newY = enemy.position.y + enemy.direction.y * speed;
-
-    const checkPos = (x: number, y: number): boolean => {
-      const gridPos = pixelToGrid({ x, y });
-      return this.isWalkable(gridPos, canPassWalls || enemy.canPassWalls);
-    };
-
-    if (checkPos(newX, enemy.position.y)) {
-      enemy.position.x = newX;
-    }
-    if (checkPos(enemy.position.x, newY)) {
-      enemy.position.y = newY;
-    }
-
-    enemy.gridPosition = pixelToGrid(enemy.position);
-    enemy.bounds.x = enemy.position.x;
-    enemy.bounds.y = enemy.position.y;
+    const dx = enemy.direction.x * speed;
+    const dy = enemy.direction.y * speed;
+    
+    // Try to move using the game engine's collision system
+    gameEngine.moveEnemy(enemy, enemy.direction.x, enemy.direction.y, deltaTime);
   }
 
-  private isWalkable(pos: GridPosition, canPassWalls: boolean): boolean {
+  // FIXED: Check if enemy can walk to a grid position
+  private canEnemyWalkTo(pos: GridPosition, enemy: Enemy): boolean {
     if (pos.row < 0 || pos.row >= this.grid.length ||
         pos.col < 0 || pos.col >= this.grid[0].length) {
       return false;
@@ -326,11 +336,29 @@ export class EnemyAI {
 
     const tile = this.grid[pos.row][pos.col];
     
-    if (canPassWalls) {
+    // Ghosts can pass through blocks but not outer walls
+    if (enemy.canPassWalls) {
+      // Check if it's an outer wall (border)
+      if (pos.row === 0 || pos.row === this.grid.length - 1 ||
+          pos.col === 0 || pos.col === this.grid[0].length - 1) {
+        return tile.type !== TILE_TYPES.WALL;
+      }
       return tile.type !== TILE_TYPES.WALL;
     }
     
-    return tile.type === TILE_TYPES.EMPTY || tile.type === TILE_TYPES.SPAWN;
+    // Normal enemies can't pass walls or blocks
+    if (tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.BLOCK) {
+      return false;
+    }
+    
+    // Check for bombs - enemies can't walk through bombs
+    for (const bomb of this.bombs) {
+      if (bomb.gridPosition.col === pos.col && bomb.gridPosition.row === pos.row) {
+        return false;
+      }
+    }
+    
+    return true;
   }
 
   private getNextGridPos(enemy: Enemy): GridPosition {
@@ -360,7 +388,7 @@ export class EnemyAI {
     return findPath(
       enemy.gridPosition,
       player.gridPosition,
-      (pos) => this.isWalkable(pos, enemy.canPassWalls),
+      (pos) => this.canEnemyWalkTo(pos, enemy),
       200
     );
   }
@@ -375,7 +403,13 @@ export class EnemyAI {
       current.col += dx;
       current.row += dy;
       
-      if (!this.isWalkable(current, false)) {
+      if (current.row < 0 || current.row >= this.grid.length ||
+          current.col < 0 || current.col >= this.grid[0].length) {
+        return false;
+      }
+      
+      const tile = this.grid[current.row][current.col];
+      if (tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.BLOCK) {
         return false;
       }
     }
@@ -412,10 +446,10 @@ export class EnemyAI {
         row: enemy.gridPosition.row + dir.y * 2,
       };
 
-      if (this.isWalkable(newPos, enemy.canPassWalls) && !this.isPositionDangerous(newPos)) {
+      if (this.canEnemyWalkTo(newPos, enemy) && !this.isPositionDangerous(newPos)) {
         enemy.direction = dir;
         enemy.state = 'moving';
-        this.moveEnemy(enemy, deltaTime);
+        this.moveEnemyWithCollision(enemy, deltaTime);
         return;
       }
     }

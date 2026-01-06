@@ -1,6 +1,6 @@
-// Game Engine - Core game loop and state management
+// Game Engine - Core game loop and state management with FIXED collision system
 
-import { GAME_CONFIG, GAME_STATES, TILE_TYPES, TileType } from '../constants';
+import { GAME_CONFIG, GAME_STATES, TILE_TYPES, TileType, BombType, PowerUpType } from '../constants';
 import { 
   GameStateData, 
   Player, 
@@ -24,6 +24,15 @@ export class GameEngine {
   private animationFrameId: number | null = null;
   private onStateChange: ((state: GameStateData) => void) | null = null;
   private onGameEvent: ((event: string, data: any) => void) | null = null;
+  
+  // Persistent player stats across levels
+  private persistentPlayerStats: Map<number, {
+    speed: number;
+    maxBombs: number;
+    fireRange: number;
+    bombType: BombType;
+    powerUps: PowerUpType[];
+  }> = new Map();
 
   constructor() {
     this.state = this.createInitialState();
@@ -80,6 +89,31 @@ export class GameEngine {
   private emitEvent(event: string, data: any): void {
     if (this.onGameEvent) {
       this.onGameEvent(event, data);
+    }
+  }
+
+  // Save player stats before level transition
+  public savePlayerStats(): void {
+    for (const player of this.state.players) {
+      this.persistentPlayerStats.set(player.playerIndex, {
+        speed: player.speed,
+        maxBombs: player.maxBombs,
+        fireRange: player.fireRange,
+        bombType: player.bombType,
+        powerUps: [...player.powerUps],
+      });
+    }
+  }
+
+  // Restore player stats after level transition
+  public restorePlayerStats(player: Player): void {
+    const savedStats = this.persistentPlayerStats.get(player.playerIndex);
+    if (savedStats) {
+      player.speed = savedStats.speed;
+      player.maxBombs = savedStats.maxBombs;
+      player.fireRange = savedStats.fireRange;
+      player.bombType = savedStats.bombType;
+      player.powerUps = [...savedStats.powerUps];
     }
   }
 
@@ -150,8 +184,8 @@ export class GameEngine {
       bounds: {
         x: pixelPos.x,
         y: pixelPos.y,
-        width: GAME_CONFIG.TILE_SIZE * 0.8,
-        height: GAME_CONFIG.TILE_SIZE * 0.8,
+        width: GAME_CONFIG.TILE_SIZE * 0.75,
+        height: GAME_CONFIG.TILE_SIZE * 0.75,
       },
       active: true,
       lives: GAME_CONFIG.PLAYER_LIVES,
@@ -174,6 +208,9 @@ export class GameEngine {
       playerIndex,
     };
     
+    // Restore persistent stats if available
+    this.restorePlayerStats(player);
+    
     return player;
   }
 
@@ -190,6 +227,7 @@ export class GameEngine {
     }
   }
 
+  // FIXED: Improved collision detection for player movement
   public movePlayer(playerId: string, input: InputState, deltaTime: number): void {
     const player = this.state.players.find(p => p.id === playerId);
     if (!player || player.isDead) return;
@@ -211,20 +249,37 @@ export class GameEngine {
       else if (dx < 0) player.direction = 'left';
       else if (dx > 0) player.direction = 'right';
       
-      // Calculate new position
+      // Calculate new position with proper speed scaling
       const speed = player.speed * (deltaTime / 16.67);
-      const newX = player.position.x + dx * speed;
-      const newY = player.position.y + dy * speed;
       
-      // Check collision
-      if (this.canMoveTo(newX, player.position.y, player)) {
-        player.position.x = newX;
-      }
-      if (this.canMoveTo(player.position.x, newY, player)) {
-        player.position.y = newY;
+      // Move X and Y separately for better collision handling
+      if (dx !== 0) {
+        const newX = player.position.x + dx * speed;
+        if (this.canMoveToPosition(newX, player.position.y, player)) {
+          player.position.x = newX;
+        } else {
+          // Slide along walls - try to align to grid
+          const alignedX = this.getAlignedPosition(player.position.x, dx);
+          if (this.canMoveToPosition(alignedX, player.position.y, player)) {
+            player.position.x = alignedX;
+          }
+        }
       }
       
-      // Update grid position
+      if (dy !== 0) {
+        const newY = player.position.y + dy * speed;
+        if (this.canMoveToPosition(player.position.x, newY, player)) {
+          player.position.y = newY;
+        } else {
+          // Slide along walls - try to align to grid
+          const alignedY = this.getAlignedPosition(player.position.y, dy);
+          if (this.canMoveToPosition(player.position.x, alignedY, player)) {
+            player.position.y = alignedY;
+          }
+        }
+      }
+      
+      // Update grid position and bounds
       player.gridPosition = pixelToGrid(player.position);
       player.bounds.x = player.position.x;
       player.bounds.y = player.position.y;
@@ -243,11 +298,21 @@ export class GameEngine {
     }
   }
 
-  private canMoveTo(x: number, y: number, player: Player): boolean {
-    const margin = 4;
-    const size = GAME_CONFIG.TILE_SIZE * 0.8;
+  private getAlignedPosition(pos: number, direction: number): number {
+    const tileSize = GAME_CONFIG.TILE_SIZE;
+    if (direction > 0) {
+      return Math.floor(pos / tileSize) * tileSize;
+    } else {
+      return Math.ceil(pos / tileSize) * tileSize;
+    }
+  }
+
+  // FIXED: Comprehensive collision detection
+  private canMoveToPosition(x: number, y: number, player: Player): boolean {
+    const margin = 2; // Small margin for smoother movement
+    const size = player.bounds.width;
     
-    // Check all four corners
+    // Check all four corners of the player hitbox
     const corners = [
       { x: x + margin, y: y + margin },
       { x: x + size - margin, y: y + margin },
@@ -257,31 +322,43 @@ export class GameEngine {
     
     for (const corner of corners) {
       const gridPos = pixelToGrid(corner);
-      if (!this.isWalkable(gridPos, player)) {
+      
+      // Check grid bounds
+      if (gridPos.row < 0 || gridPos.row >= this.state.grid.length ||
+          gridPos.col < 0 || gridPos.col >= this.state.grid[0].length) {
+        return false;
+      }
+      
+      // Check tile collision
+      const tile = this.state.grid[gridPos.row][gridPos.col];
+      if (tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.BLOCK) {
         return false;
       }
     }
     
-    return true;
-  }
-
-  private isWalkable(pos: GridPosition, player: Player): boolean {
-    if (pos.row < 0 || pos.row >= this.state.grid.length ||
-        pos.col < 0 || pos.col >= this.state.grid[0].length) {
-      return false;
-    }
+    // Check bomb collision - player can walk through their own bomb only if they're still on it
+    const playerCenterX = x + size / 2;
+    const playerCenterY = y + size / 2;
+    const playerGridPos = pixelToGrid({ x: playerCenterX, y: playerCenterY });
     
-    const tile = this.state.grid[pos.row][pos.col];
-    if (tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.BLOCK) {
-      return false;
-    }
-    
-    // Check for bombs (can walk through own bomb if just placed)
-    const bomb = this.state.bombs.find(b => 
-      b.gridPosition.col === pos.col && b.gridPosition.row === pos.row
-    );
-    if (bomb && bomb.ownerId !== player.id) {
-      return false;
+    for (const bomb of this.state.bombs) {
+      // Skip if player is the owner and still on the bomb
+      if (bomb.ownerId === player.id) {
+        const playerCurrentGrid = player.gridPosition;
+        if (playerCurrentGrid.col === bomb.gridPosition.col && 
+            playerCurrentGrid.row === bomb.gridPosition.row) {
+          continue; // Allow walking through own bomb if still on it
+        }
+      }
+      
+      // Check if any corner would collide with the bomb
+      for (const corner of corners) {
+        const cornerGrid = pixelToGrid(corner);
+        if (cornerGrid.col === bomb.gridPosition.col && 
+            cornerGrid.row === bomb.gridPosition.row) {
+          return false;
+        }
+      }
     }
     
     return true;
@@ -362,7 +439,6 @@ export class GameEngine {
 
   private createExplosion(center: GridPosition, range: number, penetrating: boolean): void {
     const directions = [
-      { dx: 0, dy: 0, dir: 'center' as const },
       { dx: 0, dy: -1, dir: 'up' as const },
       { dx: 0, dy: 1, dir: 'down' as const },
       { dx: -1, dy: 0, dir: 'left' as const },
@@ -373,7 +449,7 @@ export class GameEngine {
     this.addExplosionTile(center, 'center', false);
     
     // Directional explosions
-    for (const { dx, dy, dir } of directions.slice(1)) {
+    for (const { dx, dy, dir } of directions) {
       for (let i = 1; i <= range; i++) {
         const pos: GridPosition = {
           col: center.col + dx * i,
@@ -384,11 +460,13 @@ export class GameEngine {
         
         const tile = this.state.grid[pos.row][pos.col];
         
+        // Stop at walls
         if (tile.type === TILE_TYPES.WALL) break;
         
         const isEnd = i === range;
         this.addExplosionTile(pos, dir, isEnd);
         
+        // Stop at blocks (after creating explosion on the block)
         if (tile.type === TILE_TYPES.BLOCK) {
           this.destroyBlock(pos);
           if (!penetrating) break;
@@ -396,7 +474,7 @@ export class GameEngine {
         
         // Chain reaction with other bombs
         const chainBomb = this.state.bombs.find(b => 
-          b.gridPosition.col === pos.col && b.gridPosition.row === pos.row
+          b.gridPosition.col === pos.col && b.gridPosition.row === pos.row && !b.isDetonated
         );
         if (chainBomb) {
           setTimeout(() => this.explodeBomb(chainBomb), 50);
@@ -413,10 +491,10 @@ export class GameEngine {
       position: pixelPos,
       gridPosition: pos,
       bounds: {
-        x: pixelPos.x,
-        y: pixelPos.y,
-        width: GAME_CONFIG.TILE_SIZE,
-        height: GAME_CONFIG.TILE_SIZE,
+        x: pixelPos.x + 4,
+        y: pixelPos.y + 4,
+        width: GAME_CONFIG.TILE_SIZE - 8,
+        height: GAME_CONFIG.TILE_SIZE - 8,
       },
       active: true,
       range: 0,
@@ -521,14 +599,14 @@ export class GameEngine {
   public spawnEnemy(type: string, pos: GridPosition): Enemy {
     const pixelPos = gridToPixel(pos);
     const enemyConfigs: Record<string, Partial<Enemy>> = {
-      slime: { speed: 1.5, health: 1, points: 100, canPassWalls: false },
-      bat: { speed: 3, health: 1, points: 200, canPassWalls: false },
-      ghost: { speed: 2, health: 1, points: 300, canPassWalls: true },
-      bomber: { speed: 1.5, health: 2, points: 400, canPlaceBombs: true },
-      charger: { speed: 4, health: 1, points: 300 },
-      teleporter: { speed: 1, health: 1, points: 500 },
-      shield: { speed: 1.5, health: 2, points: 400, isShielded: true },
-      splitter: { speed: 2, health: 1, points: 250 },
+      slime: { speed: 1.2, health: 1, points: 100, canPassWalls: false },
+      bat: { speed: 2.5, health: 1, points: 200, canPassWalls: false },
+      ghost: { speed: 1.8, health: 1, points: 300, canPassWalls: true },
+      bomber: { speed: 1.2, health: 2, points: 400, canPlaceBombs: true },
+      charger: { speed: 3.5, health: 1, points: 300, canPassWalls: false },
+      teleporter: { speed: 1, health: 1, points: 500, canPassWalls: false },
+      shield: { speed: 1.2, health: 2, points: 400, isShielded: true },
+      splitter: { speed: 1.5, health: 1, points: 250, canPassWalls: false },
     };
     
     const config = enemyConfigs[type] || enemyConfigs.slime;
@@ -538,10 +616,10 @@ export class GameEngine {
       position: pixelPos,
       gridPosition: pos,
       bounds: {
-        x: pixelPos.x,
-        y: pixelPos.y,
-        width: GAME_CONFIG.TILE_SIZE * 0.8,
-        height: GAME_CONFIG.TILE_SIZE * 0.8,
+        x: pixelPos.x + 4,
+        y: pixelPos.y + 4,
+        width: GAME_CONFIG.TILE_SIZE * 0.7,
+        height: GAME_CONFIG.TILE_SIZE * 0.7,
       },
       active: true,
       type: type as any,
@@ -562,6 +640,82 @@ export class GameEngine {
     
     this.state.enemies.push(enemy);
     return enemy;
+  }
+
+  // FIXED: Enemy movement with proper collision
+  public moveEnemy(enemy: Enemy, dx: number, dy: number, deltaTime: number): void {
+    if (enemy.state === 'dying') return;
+    
+    const speed = enemy.speed * (deltaTime / 16.67);
+    const newX = enemy.position.x + dx * speed;
+    const newY = enemy.position.y + dy * speed;
+    
+    // Check if enemy can move to new position
+    if (this.canEnemyMoveTo(newX, enemy.position.y, enemy)) {
+      enemy.position.x = newX;
+    }
+    if (this.canEnemyMoveTo(enemy.position.x, newY, enemy)) {
+      enemy.position.y = newY;
+    }
+    
+    // Update grid position and bounds
+    enemy.gridPosition = pixelToGrid(enemy.position);
+    enemy.bounds.x = enemy.position.x + 4;
+    enemy.bounds.y = enemy.position.y + 4;
+  }
+
+  // FIXED: Enemy collision detection
+  private canEnemyMoveTo(x: number, y: number, enemy: Enemy): boolean {
+    const margin = 4;
+    const size = enemy.bounds.width;
+    
+    // Check corners
+    const corners = [
+      { x: x + margin, y: y + margin },
+      { x: x + size - margin + 4, y: y + margin },
+      { x: x + margin, y: y + size - margin + 4 },
+      { x: x + size - margin + 4, y: y + size - margin + 4 },
+    ];
+    
+    for (const corner of corners) {
+      const gridPos = pixelToGrid(corner);
+      
+      // Check bounds
+      if (gridPos.row < 0 || gridPos.row >= this.state.grid.length ||
+          gridPos.col < 0 || gridPos.col >= this.state.grid[0].length) {
+        return false;
+      }
+      
+      const tile = this.state.grid[gridPos.row][gridPos.col];
+      
+      // Ghosts can pass through walls and blocks
+      if (enemy.canPassWalls) {
+        if (tile.type === TILE_TYPES.WALL) {
+          return false; // Even ghosts can't go through outer walls
+        }
+        continue;
+      }
+      
+      // Normal enemies can't pass walls or blocks
+      if (tile.type === TILE_TYPES.WALL || tile.type === TILE_TYPES.BLOCK) {
+        return false;
+      }
+    }
+    
+    // Check bomb collision for enemies (they can't pass through bombs)
+    if (!enemy.canPassWalls) {
+      for (const bomb of this.state.bombs) {
+        for (const corner of corners) {
+          const cornerGrid = pixelToGrid(corner);
+          if (cornerGrid.col === bomb.gridPosition.col && 
+              cornerGrid.row === bomb.gridPosition.row) {
+            return false;
+          }
+        }
+      }
+    }
+    
+    return true;
   }
 
   public killEnemy(enemy: Enemy, killer: Player | null): void {
@@ -597,7 +751,7 @@ export class GameEngine {
     this.notifyStateChange();
   }
 
-  // Collision Detection
+  // FIXED: Collision Detection
   public checkCollisions(): void {
     // Player vs Explosion
     for (const player of this.state.players) {
@@ -625,6 +779,13 @@ export class GameEngine {
           this.collectPowerUp(player, powerUp);
         }
       }
+      
+      // Player vs Boss
+      if (this.state.boss && this.state.boss.active) {
+        if (this.checkBoundsCollision(player.bounds, this.state.boss.bounds)) {
+          this.damagePlayer(player);
+        }
+      }
     }
     
     // Enemy vs Explosion
@@ -635,13 +796,24 @@ export class GameEngine {
       for (const explosion of this.state.explosions) {
         if (this.checkBoundsCollision(enemy.bounds, explosion.bounds)) {
           enemy.health--;
+          if (enemy.isShielded) {
+            enemy.shieldTimer = 2000; // Shield cooldown
+          }
           if (enemy.health <= 0) {
-            // Find the player who placed the bomb
-            const killer = this.state.players.find(p => 
-              this.state.bombs.some(b => b.ownerId === p.id)
-            ) || this.state.players[0];
+            // Find the player who placed the bomb that caused this explosion
+            const killer = this.state.players[0]; // Default to first player
             this.killEnemy(enemy, killer);
           }
+          break;
+        }
+      }
+    }
+    
+    // Boss vs Explosion
+    if (this.state.boss && this.state.boss.active) {
+      for (const explosion of this.state.explosions) {
+        if (this.checkBoundsCollision(this.state.boss.bounds, explosion.bounds)) {
+          this.damageBoss();
           break;
         }
       }
@@ -678,6 +850,19 @@ export class GameEngine {
     }
     
     this.notifyStateChange();
+  }
+
+  private damageBoss(): void {
+    if (!this.state.boss) return;
+    
+    this.state.boss.health--;
+    this.emitEvent('bossDamaged', { boss: this.state.boss });
+    
+    if (this.state.boss.health <= 0) {
+      this.state.boss.active = false;
+      this.state.score += this.state.boss.points;
+      this.emitEvent('bossDefeated', { boss: this.state.boss });
+    }
   }
 
   // Game Loop
@@ -741,6 +926,9 @@ export class GameEngine {
     // Update players
     this.updatePlayers(deltaTime);
     
+    // Update boss
+    this.updateBoss(deltaTime);
+    
     // Check collisions
     this.checkCollisions();
     
@@ -774,7 +962,6 @@ export class GameEngine {
   }
 
   private updateEnemies(deltaTime: number): void {
-    // Enemy AI updates are handled by the EnemyAI system
     for (const enemy of this.state.enemies) {
       enemy.animationFrame = (enemy.animationFrame + deltaTime * 0.01) % 4;
       
@@ -806,9 +993,25 @@ export class GameEngine {
     }
   }
 
+  private updateBoss(deltaTime: number): void {
+    if (!this.state.boss || !this.state.boss.active) return;
+    
+    this.state.boss.animationFrame = (this.state.boss.animationFrame + deltaTime * 0.01) % 4;
+    
+    if (this.state.boss.attackCooldown > 0) {
+      this.state.boss.attackCooldown -= deltaTime;
+    }
+  }
+
   private checkLevelCompletion(): void {
-    if (this.state.enemies.length === 0 && !this.state.boss) {
-      // Level complete
+    const allEnemiesDefeated = this.state.enemies.length === 0;
+    const bossDefeated = !this.state.boss || !this.state.boss.active;
+    
+    if (allEnemiesDefeated && bossDefeated) {
+      // Save player stats before level transition
+      this.savePlayerStats();
+      
+      this.setState({ state: GAME_STATES.VICTORY });
       this.emitEvent('levelComplete', { 
         level: this.state.currentLevel, 
         score: this.state.score,

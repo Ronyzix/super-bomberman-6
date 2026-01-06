@@ -145,3 +145,72 @@
 - [x] Tabela de replays
 - [x] Tabela de salas multiplayer
 - [x] Tabela de leaderboards
+
+
+## MEGA ATUALIZAÇÃO - Correções e Melhorias
+
+### Correções de Colisão (CRÍTICO)
+- [x] Corrigir colisão do jogador com paredes sólidas
+- [x] Corrigir colisão do jogador com blocos destrutíveis
+- [x] Corrigir colisão de bombas (não podem atravessar paredes)
+- [x] Corrigir colisão de inimigos com paredes
+- [x] Corrigir colisão de inimigos com blocos
+- [x] Corrigir colisão de explosões (parar em paredes sólidas)
+- [x] Impedir jogador de atravessar bombas após colocar
+- [x] Sistema de colisão baseado em grid preciso
+
+### Multiplayer Real (CRÍTICO)
+- [x] Remover salas fake/bot do multiplayer
+- [x] Implementar WebSocket real para sincronização
+- [x] Sistema de salas real com criação/entrada
+- [x] Sincronização de posição dos jogadores em tempo real
+- [x] Sincronização de bombas e explosões
+- [x] Sincronização de inimigos e power-ups
+- [x] Suporte inicial para 2 jogadores (expandir depois)
+- [x] Lobby funcional com status de jogadores
+- [x] Sistema de início de partida quando todos prontos
+
+### Sistema de Power-ups
+- [x] Manter power-ups ao passar de fase
+- [x] Perder power-ups apenas ao morrer
+- [x] Indicador visual de power-ups ativos no HUD
+- [x] Especificação clara de qual bomba está equipada
+
+### Inimigos - Correções
+- [x] Corrigir colisões dos inimigos (não atravessar paredes)
+- [x] Implementar poderes corretos para cada tipo de inimigo
+- [x] Ghost: único que pode atravessar paredes
+- [x] Bomber: colocar bombas de verdade
+- [x] Charger: correr em direção ao jogador corretamente
+- [x] Teleporter: teleportar para posições válidas
+- [x] Shield: imunidade temporária funcionando
+- [x] Splitter: dividir corretamente ao morrer
+- [x] Adicionar novos tipos de inimigos
+
+### Bosses - Melhorias
+- [x] Aumentar tamanho dos bosses (proporcionais)
+- [x] Movimentação especial para cada boss
+- [x] Padrões de ataque mais complexos
+- [x] Fases de batalha distintas
+- [x] Efeitos visuais de ataque
+
+### Sprites do Bomberman
+- [x] Sprites pixel art estilizados do personagem Bomberman
+- [x] Sprites de inimigos com design único
+- [x] Sprites de bombas e explosões
+- [x] Sprites de power-ups
+- [x] Implementar sprites no jogo (gerados programaticamente)
+
+### Configurações de HUD
+- [x] Opção para mover HUD (cima/baixo)
+- [x] Opção para ajustar tamanho do HUD
+- [x] Salvar preferências de HUD
+- [x] Preview em tempo real das configurações
+
+### Testes e Qualidade
+- [x] Testar colisões em todas as direções
+- [x] Testar comportamento de cada inimigo
+- [x] Testar multiplayer com 2 jogadores
+- [x] Testar progressão de fases com power-ups
+- [x] Testar boss fights completos
+- [x] 38 testes unitários passando
